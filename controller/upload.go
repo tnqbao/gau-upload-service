@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"github.com/tnqbao/gau-upload-service/utils"
 	"io"
 	"net/http"
 
@@ -11,26 +12,26 @@ import (
 func (ctrl *Controller) UploadImage(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		utils.JSON400(c, "Failed to get file: "+err.Error())
 		return
 	}
 
 	key := c.PostForm("file_path")
 	if key == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file_path is required"})
+		utils.JSON400(c, "file_path is required")
 		return
 	}
 
 	file, err := fileHeader.Open()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot open uploaded file"})
+		utils.JSON500(c, "Failed to open file: "+err.Error())
 		return
 	}
 	defer file.Close()
 
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, file); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read uploaded file"})
+		utils.JSON500(c, "Failed to read file: "+err.Error())
 		return
 	}
 
@@ -43,10 +44,9 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 
 	err = ctrl.Infrastructure.CloudflareR2Client.PutObject(c.Request.Context(), key, data, contentType)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upload to R2"})
+		utils.JSON500(c, "Failed to upload file: "+err.Error())
 		return
 	}
-
 	// Reset the buffer to clear the data after upload
 	for i := range data {
 		data[i] = 0
@@ -54,7 +54,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	buf.Reset()
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":  "File uploaded successfully",
-		"file_key": key,
+		"message": "File uploaded successfully",
+		"url":     key,
 	})
 }

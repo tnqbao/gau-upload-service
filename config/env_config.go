@@ -2,7 +2,6 @@ package config
 
 import (
 	"os"
-	"strconv"
 )
 
 type EnvConfig struct {
@@ -24,7 +23,7 @@ func LoadEnvConfig() *EnvConfig {
 	if bucketName := os.Getenv("CLOUDFLARE_R2_BUCKET_NAME"); bucketName != "" {
 		config.CloudflareR2.BucketName = bucketName
 	} else {
-		config.CloudflareR2.BucketName = "default-bucket" // Default bucket name if not set
+		config.CloudflareR2.BucketName = "default-bucket"
 	}
 
 	return &config

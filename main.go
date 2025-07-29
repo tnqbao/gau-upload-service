@@ -5,6 +5,7 @@ import (
 	"github.com/tnqbao/gau-upload-service/config"
 	"github.com/tnqbao/gau-upload-service/controller"
 	"github.com/tnqbao/gau-upload-service/infra"
+	"github.com/tnqbao/gau-upload-service/repository"
 	"github.com/tnqbao/gau-upload-service/routes"
 	"log"
 )
@@ -16,12 +17,13 @@ func main() {
 	}
 
 	// Initialize configuration and infrastructure
-	newConfig := config.NewConfig()
-	newInfra := infra.InitInfra(newConfig)
+	cfg := config.NewConfig()
+	repo := repository.NewRepository(cfg)
+	infra := infra.NewInfra(cfg)
 
 	// Initialize controller with the new configuration and infrastructure
-	ctrl := controller.NewController(newConfig, newInfra)
+	ctrl := controller.NewController(cfg, repo, infra)
 
 	router := routes.SetupRouter(ctrl)
-	router.Run(":8082")
+	router.Run(":8080")
 }

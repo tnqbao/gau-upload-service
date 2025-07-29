@@ -12,11 +12,7 @@ type Controller struct {
 	Config         *config.Config
 }
 
-func NewController() *Controller {
-	cfg := config.NewConfig()
-	repo := repository.NewRepository(cfg)
-	infra := infra.NewInfra(cfg)
-
+func NewController(cfg *config.Config, repo *repository.Repository, infra *infra.Infra) *Controller {
 	return &Controller{
 		Repository:     repo,
 		Infrastructure: infra,

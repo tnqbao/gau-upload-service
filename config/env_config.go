@@ -28,7 +28,7 @@ func LoadEnvConfig() *EnvConfig {
 		config.CloudflareR2.BucketName = "default-bucket"
 	}
 
-	config.PrivateKey = os.Getenv("CLOUDFLARE_R2_PRIVATE_KEY")
+	config.PrivateKey = os.Getenv("PRIVATE_KEY")
 
 	return &config
 }

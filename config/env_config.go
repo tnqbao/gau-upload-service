@@ -11,6 +11,8 @@ type EnvConfig struct {
 		SecretKey  string
 		BucketName string
 	}
+
+	PrivateKey string
 }
 
 func LoadEnvConfig() *EnvConfig {
@@ -25,6 +27,8 @@ func LoadEnvConfig() *EnvConfig {
 	} else {
 		config.CloudflareR2.BucketName = "default-bucket"
 	}
+
+	config.PrivateKey = os.Getenv("CLOUDFLARE_R2_PRIVATE_KEY")
 
 	return &config
 }

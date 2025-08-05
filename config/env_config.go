@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 )
 
 type EnvConfig struct {
@@ -13,6 +14,10 @@ type EnvConfig struct {
 	}
 
 	PrivateKey string
+
+	Limit struct {
+		ImageMaxSize int64
+	}
 }
 
 func LoadEnvConfig() *EnvConfig {
@@ -29,6 +34,16 @@ func LoadEnvConfig() *EnvConfig {
 	}
 
 	config.PrivateKey = os.Getenv("PRIVATE_KEY")
+
+	if imageSizeStr := os.Getenv("IMAGE_MAX_SIZE"); imageSizeStr != "" {
+		if imageSize, err := strconv.ParseInt(imageSizeStr, 10, 64); err == nil {
+			config.Limit.ImageMaxSize = imageSize
+		} else {
+			config.Limit.ImageMaxSize = 5242880 // Default to 5MB in bytes if invalid
+		}
+	} else {
+		config.Limit.ImageMaxSize = 5242880 // Default to 5MB in bytes if not set
+	}
 
 	return &config
 }

@@ -17,8 +17,8 @@ spec:
         - name: gau-upload-service
           image: iamqbao/gau_upload_service:latest
           envFrom:
-#            - configMapRef:
-#                name: bao-upload-${DEPLOY_ENV}-config
+            - configMapRef:
+                name: bao-upload-${DEPLOY_ENV}-config
             - secretRef:
                 name: bao-upload-${DEPLOY_ENV}-secret
           resources:

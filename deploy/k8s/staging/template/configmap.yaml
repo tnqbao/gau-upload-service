@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bao-upload-${DEPLOY_ENV}-config
+  namespace: bao-${DEPLOY_ENV}-env
+data:
+  IMAGE_MAX_SIZE: "${IMAGE_MAX_SIZE}"

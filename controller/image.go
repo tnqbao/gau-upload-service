@@ -7,11 +7,18 @@ import (
 	"github.com/tnqbao/gau-upload-service/utils"
 	"io"
 	"net/http"
+	"strings"
 )
 
-const maxUploadSizeMB = 10
-
-var allowedContentTypes = []string{"image/jpeg", "image/png", "image/webp"}
+var allowedContentTypes = []string{
+	"image/jpeg",
+	"image/jpg",
+	"image/png",
+	"image/webp",
+	"image/svg+xml",
+	"image/x-icon",
+	"image/vnd.microsoft.icon",
+}
 
 func (ctrl *Controller) UploadImage(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
@@ -20,11 +27,24 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 		return
 	}
 
-	key := c.PostForm("file_path")
-	if key == "" {
+	maxUploadSizeMB := ctrl.Config.EnvConfig.Limit.ImageMaxSize
+
+	// Get file_path from form data to use as folder name
+	folderName := strings.TrimSpace(c.PostForm("file_path"))
+	if folderName == "" {
 		utils.JSON400(c, "file_path is required")
 		return
 	}
+
+	// Clean folder name: remove leading/trailing slashes and normalize
+	folderName = strings.Trim(folderName, "/")
+	if folderName == "" {
+		utils.JSON400(c, "file_path cannot be empty or just slashes")
+		return
+	}
+
+	// Sanitize the original filename to remove special characters and spaces
+	sanitizedFileName := utils.SanitizeFileName(fileHeader.Filename)
 
 	if !utils.IsFileSizeAllowed(fileHeader.Size, maxUploadSizeMB) {
 		utils.JSON400(c, fmt.Sprintf("File size exceeds %dMB limit", maxUploadSizeMB))
@@ -38,7 +58,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	}
 	defer file.Close()
 
-	limited := io.LimitReader(file, maxUploadSizeMB*1024*1024+1)
+	limited := io.LimitReader(file, maxUploadSizeMB)
 	buf := new(bytes.Buffer)
 	n, err := io.Copy(buf, limited)
 	if err != nil {
@@ -61,7 +81,10 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 		return
 	}
 
-	if err := ctrl.Infrastructure.CloudflareR2Client.PutObject(c.Request.Context(), key, data, contentType); err != nil {
+	// Construct the full path using sanitized filename: folder_name/sanitized_filename.ext
+	fullPath := fmt.Sprintf("%s/%s", folderName, sanitizedFileName)
+
+	if err := ctrl.Infrastructure.CloudflareR2Client.PutObject(c.Request.Context(), fullPath, data, contentType); err != nil {
 		utils.JSON500(c, "Failed to upload file: "+err.Error())
 		return
 	}
@@ -71,7 +94,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	}
 	buf.Reset()
 
-	filePath := fmt.Sprintf("%s/%s", key, fileHeader.Filename)
+	filePath := fmt.Sprintf("%s", fullPath)
 	utils.JSON200(c, gin.H{
 		"file_path": filePath,
 		"message":   "File uploaded successfully",

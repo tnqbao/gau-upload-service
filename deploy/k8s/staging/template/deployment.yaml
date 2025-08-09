@@ -17,16 +17,16 @@ spec:
         - name: gau-upload-service
           image: iamqbao/gau_upload_service:latest
           envFrom:
-#            - configMapRef:
-#                name: bao-upload-${DEPLOY_ENV}-config
+            - configMapRef:
+                name: bao-upload-${DEPLOY_ENV}-config
             - secretRef:
                 name: bao-upload-${DEPLOY_ENV}-secret
           resources:
             requests:
-              cpu: "300m"
+              cpu: "50m"
               memory: "500Mi"
             limits:
-              cpu: "500m"
+              cpu: "200m"
               memory: "1Gi"
 
 ---

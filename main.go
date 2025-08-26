@@ -19,7 +19,7 @@ func main() {
 	// Initialize configuration and infrastructure
 	cfg := config.NewConfig()
 	repo := repository.NewRepository(cfg)
-	infra := infra.NewInfra(cfg)
+	infra := infra.InitInfra(cfg)
 
 	// Initialize controller with the new configuration and infrastructure
 	ctrl := controller.NewController(cfg, repo, infra)

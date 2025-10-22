@@ -3,11 +3,12 @@ package controller
 import (
 	"bytes"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/tnqbao/gau-upload-service/utils"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/tnqbao/gau-upload-service/utils"
 )
 
 var allowedContentTypes = []string{
@@ -21,8 +22,12 @@ var allowedContentTypes = []string{
 }
 
 func (ctrl *Controller) UploadImage(c *gin.Context) {
+	ctx := c.Request.Context()
+	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload Image] Create new token request received")
+
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload Image] Failed to get file from form data")
 		utils.JSON400(c, "Failed to get file: "+err.Error())
 		return
 	}
@@ -32,6 +37,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	// Get file_path from form data to use as folder name
 	folderName := strings.TrimSpace(c.PostForm("file_path"))
 	if folderName == "" {
+		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Upload Image] file_path is required")
 		utils.JSON400(c, "file_path is required")
 		return
 	}
@@ -39,6 +45,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	// Clean folder name: remove leading/trailing slashes and normalize
 	folderName = strings.Trim(folderName, "/")
 	if folderName == "" {
+		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Upload Image] file_path cannot be empty or just slashes")
 		utils.JSON400(c, "file_path cannot be empty or just slashes")
 		return
 	}
@@ -47,12 +54,14 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	sanitizedFileName := utils.SanitizeFileName(fileHeader.Filename)
 
 	if !utils.IsFileSizeAllowed(fileHeader.Size, maxUploadSizeMB) {
+		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Upload Image] File size exceeds limit: %dMB", maxUploadSizeMB)
 		utils.JSON400(c, fmt.Sprintf("File size exceeds %dMB limit", maxUploadSizeMB))
 		return
 	}
 
 	file, err := fileHeader.Open()
 	if err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload Image] Failed to open uploaded file")
 		utils.JSON500(c, "Failed to open file: "+err.Error())
 		return
 	}
@@ -62,10 +71,12 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	buf := new(bytes.Buffer)
 	n, err := io.Copy(buf, limited)
 	if err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload Image] Failed to read uploaded file")
 		utils.JSON500(c, "Failed to read file: "+err.Error())
 		return
 	}
 	if !utils.IsFileSizeAllowed(n, maxUploadSizeMB) {
+		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Upload Image] File size exceeds limit after reading: %dMB", maxUploadSizeMB)
 		utils.JSON400(c, fmt.Sprintf("File size exceeds %dMB", maxUploadSizeMB))
 		return
 	}
@@ -77,6 +88,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	}
 
 	if !utils.CheckFileType(contentType, allowedContentTypes) {
+		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Upload Image] Unsupported file type: %s", contentType)
 		utils.JSON400(c, "Unsupported file type: "+contentType)
 		return
 	}
@@ -85,6 +97,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	fullPath := fmt.Sprintf("%s/%s", folderName, sanitizedFileName)
 
 	if err := ctrl.Infrastructure.CloudflareR2Client.PutObject(c.Request.Context(), fullPath, data, contentType); err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload Image] Failed to upload file to Cloudflare R2")
 		utils.JSON500(c, "Failed to upload file: "+err.Error())
 		return
 	}
@@ -95,6 +108,7 @@ func (ctrl *Controller) UploadImage(c *gin.Context) {
 	buf.Reset()
 
 	filePath := fmt.Sprintf("%s", fullPath)
+	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload Image] File uploaded successfully: %s", filePath)
 	utils.JSON200(c, gin.H{
 		"file_path": filePath,
 		"message":   "File uploaded successfully",

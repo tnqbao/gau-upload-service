@@ -57,6 +57,6 @@ jobs:
 
       - name: Restart pods
         run: |
-          kubectl rollout restart deployment gau-upload-deployment -n bao-staging-env
+          kubectl rollout restart deployment gau-upload-http-deployment -n bao-staging-env
           sleep 10
           kubectl get pods -n bao-staging-env

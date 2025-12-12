@@ -7,17 +7,19 @@ import (
 )
 
 type EnvConfig struct {
-	CloudflareR2 struct {
-		Endpoint   string
-		AccessKey  string
-		SecretKey  string
-		BucketName string
+	Minio struct {
+		Endpoint  string
+		AccessKey string
+		SecretKey string
+		Region    string
+		UseSSL    bool
 	}
 
 	PrivateKey string
 
 	Limit struct {
 		ImageMaxSize int64
+		FileMaxSize  int64
 	}
 
 	Grafana struct {
@@ -34,15 +36,16 @@ type EnvConfig struct {
 func LoadEnvConfig() *EnvConfig {
 	var config EnvConfig
 
-	// Cloudflare R2
-	config.CloudflareR2.Endpoint = os.Getenv("CLOUDFLARE_R2_ENDPOINT")
-	config.CloudflareR2.AccessKey = os.Getenv("CLOUDFLARE_R2_ACCESS_KEY_ID")
-	config.CloudflareR2.SecretKey = os.Getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
-	if bucketName := os.Getenv("CLOUDFLARE_R2_BUCKET_NAME"); bucketName != "" {
-		config.CloudflareR2.BucketName = bucketName
-	} else {
-		config.CloudflareR2.BucketName = "default-bucket"
+	// Minio
+	config.Minio.Endpoint = os.Getenv("MINIO_ENDPOINT")
+	config.Minio.AccessKey = os.Getenv("MINIO_ACCESS_KEY_ID")
+	config.Minio.SecretKey = os.Getenv("MINIO_SECRET_ACCESS_KEY")
+	config.Minio.Region = os.Getenv("MINIO_REGION")
+	if config.Minio.Region == "" {
+		config.Minio.Region = "us-east-1"
 	}
+	useSSL := os.Getenv("MINIO_USE_SSL")
+	config.Minio.UseSSL = useSSL == "true" || useSSL == "1"
 
 	config.PrivateKey = os.Getenv("PRIVATE_KEY")
 
@@ -54,6 +57,16 @@ func LoadEnvConfig() *EnvConfig {
 		}
 	} else {
 		config.Limit.ImageMaxSize = 5242880 // Default to 5MB in bytes if not set
+	}
+
+	if fileSizeStr := os.Getenv("FILE_MAX_SIZE"); fileSizeStr != "" {
+		if fileSize, err := strconv.ParseInt(fileSizeStr, 10, 64); err == nil {
+			config.Limit.FileMaxSize = fileSize
+		} else {
+			config.Limit.FileMaxSize = 10485760 // Default to 10MB in bytes if invalid
+		}
+	} else {
+		config.Limit.FileMaxSize = 10485760 // Default to 10MB in bytes if not set
 	}
 
 	// Grafana/OpenTelemetry

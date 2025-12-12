@@ -16,8 +16,12 @@ func SetupRouter(ctrl *controller.Controller) *gin.Engine {
 	apiRoutes := r.Group("/api/v2/upload")
 	{
 		apiRoutes.Use(middles.PrivateMiddlewares)
-		apiRoutes.PATCH("/image", ctrl.UploadImage)
 
+		// Generic file upload endpoints
+		apiRoutes.POST("/file", ctrl.UploadFile)
+		apiRoutes.GET("/file", ctrl.GetFile)
+		apiRoutes.DELETE("/file", ctrl.DeleteFile)
+		apiRoutes.GET("/files/list", ctrl.ListFiles)
 	}
 	return r
 }

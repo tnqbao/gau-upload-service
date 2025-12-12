@@ -3,18 +3,21 @@ package infra
 import "github.com/tnqbao/gau-upload-service/config"
 
 type Infra struct {
-	CloudflareR2Client *CloudflareR2Client
-	Logger             *LoggerClient
+	MinioClient    *MinioClient
+	ParquetService *ParquetService
+	Logger         *LoggerClient
 	//PostgresClient     *Postgres
 	//RedisClient        *Redis
 }
 
 func InitInfra(config *config.Config) *Infra {
 
-	cloudflareR2Client, err := NewCloudflareR2Client(config.EnvConfig)
+	minioClient, err := NewMinioClient(config.EnvConfig)
 	if err != nil {
-		panic("Failed to create Cloudflare R2 client: " + err.Error())
+		panic("Failed to create MinIO client: " + err.Error())
 	}
+
+	parquetService := NewParquetService(minioClient)
 
 	loggerClient := InitLoggerClient(config.EnvConfig)
 	if loggerClient == nil {
@@ -27,7 +30,8 @@ func InitInfra(config *config.Config) *Infra {
 	//}
 
 	return &Infra{
-		CloudflareR2Client: cloudflareR2Client,
-		Logger:             loggerClient,
+		MinioClient:    minioClient,
+		ParquetService: parquetService,
+		Logger:         loggerClient,
 	}
 }

@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /gau_upload
 
 COPY go.mod go.sum ./
@@ -20,7 +20,7 @@ RUN apk add --no-cache \
     && chmod +x /usr/local/bin/migrate
 
 COPY --from=builder /gau_upload/gau-upload-service.bin .
-COPY migrations ./migrations
+#COPY migrations ./migrations
 COPY entrypoint.sh .
 
 RUN chmod +x entrypoint.sh

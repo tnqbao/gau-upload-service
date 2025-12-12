@@ -20,7 +20,7 @@ RUN apk add --no-cache \
     && chmod +x /usr/local/bin/migrate
 
 COPY --from=builder /gau_upload/gau-upload-service.bin .
-COPY migrations ./migrations
+#COPY migrations ./migrations
 COPY entrypoint.sh .
 
 RUN chmod +x entrypoint.sh

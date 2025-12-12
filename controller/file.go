@@ -136,6 +136,19 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		return
 	}
 
+	// If custom path provided, ensure folders exist in MinIO (create placeholder objects for each level)
+	if customPath != "" {
+		segments := strings.Split(customPath, "/")
+		for i := 0; i < len(segments); i++ {
+			folder := strings.Join(segments[:i+1], "/")
+			if err := ctrl.Infrastructure.MinioClient.CreateFolderIfNotExist(ctx, bucketName, folder); err != nil {
+				ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create folder in MinIO: %s", folder)
+				utils.JSON500(c, "Failed to create folder: "+err.Error())
+				return
+			}
+		}
+	}
+
 	// Upload file with metadata to MinIO
 	metadata := map[string]string{
 		"file-hash":     fileHash,

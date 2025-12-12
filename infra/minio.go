@@ -118,7 +118,9 @@ func (m *MinioClient) GetObjectFromBucket(ctx context.Context, bucket, key strin
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get object: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()D
 
 	buf := new(bytes.Buffer)
 	if _, err := io.Copy(buf, resp.Body); err != nil {

@@ -114,6 +114,22 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Upload to root: %s", fullPath)
 	}
 
+	// If custom path provided, ensure folders exist in MinIO FIRST (before checking deduplication)
+	if customPath != "" {
+		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Creating folder structure for path: %s", customPath)
+		segments := strings.Split(customPath, "/")
+		for i := 0; i < len(segments); i++ {
+			folder := strings.Join(segments[:i+1], "/")
+			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Creating folder: %s", folder)
+			if err := ctrl.Infrastructure.MinioClient.CreateFolderIfNotExist(ctx, bucketName, folder); err != nil {
+				ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create folder in MinIO: %s", folder)
+				utils.JSON500(c, "Failed to create folder: "+err.Error())
+				return
+			}
+			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Successfully created folder: %s/", folder)
+		}
+	}
+
 	// Check if file already exists by hash in metadata using Parquet
 	existingFile, exists, err := ctrl.Infrastructure.ParquetService.CheckFileByHash(ctx, bucketName, fileHash)
 	if err != nil {
@@ -123,29 +139,24 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 	}
 
 	if exists {
-		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] File already exists with hash: %s, path: %s", fileHash, existingFile)
-		utils.JSON200(c, gin.H{
-			"file_path":    existingFile,
-			"file_hash":    fileHash,
-			"message":      "File already exists (deduplicated)",
-			"bucket":       bucketName,
-			"content_type": contentType,
-			"size":         fileHeader.Size,
-			"duplicated":   true,
-		})
-		return
-	}
-
-	// If custom path provided, ensure folders exist in MinIO (create placeholder objects for each level)
-	if customPath != "" {
-		segments := strings.Split(customPath, "/")
-		for i := 0; i < len(segments); i++ {
-			folder := strings.Join(segments[:i+1], "/")
-			if err := ctrl.Infrastructure.MinioClient.CreateFolderIfNotExist(ctx, bucketName, folder); err != nil {
-				ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create folder in MinIO: %s", folder)
-				utils.JSON500(c, "Failed to create folder: "+err.Error())
-				return
-			}
+		// File with same hash exists, but check if it's at a different path
+		if existingFile == fullPath {
+			// Same file at same path - true duplicate
+			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] File already exists at exact path: %s (hash: %s)", existingFile, fileHash)
+			utils.JSON200(c, gin.H{
+				"file_path":    existingFile,
+				"file_hash":    fileHash,
+				"message":      "File already exists (deduplicated)",
+				"bucket":       bucketName,
+				"content_type": contentType,
+				"size":         fileHeader.Size,
+				"duplicated":   true,
+			})
+			return
+		} else {
+			// Same content but different path - create a copy/reference
+			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] File with same hash exists at %s, but creating copy at new path: %s", existingFile, fullPath)
+			// Continue to upload the file at the new path
 		}
 	}
 
@@ -191,7 +202,7 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		"bucket":       bucketName,
 		"content_type": contentType,
 		"size":         fileHeader.Size,
-		"duplicated":   false,
+		"duplicated":   exists && existingFile != fullPath, // True if file content was duplicated but saved at new path
 	})
 }
 

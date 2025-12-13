@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -174,5 +175,43 @@ func (m *MinioClient) EnsureBucketByName(ctx context.Context, bucket string) err
 			return fmt.Errorf("failed to create bucket: %w", err)
 		}
 	}
+	return nil
+}
+
+// CreateFolderIfNotExist creates a folder (directory marker) in MinIO if it doesn't exist
+// In S3/MinIO, folders are virtual and created by adding a trailing slash to the key
+func (m *MinioClient) CreateFolderIfNotExist(ctx context.Context, bucket, folderPath string) error {
+	// Ensure bucket exists first
+	if err := m.EnsureBucketByName(ctx, bucket); err != nil {
+		return err
+	}
+
+	// Normalize folder path (ensure it ends with /)
+	if !strings.HasSuffix(folderPath, "/") {
+		folderPath = folderPath + "/"
+	}
+
+	// Check if folder marker already exists
+	_, err := m.Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(folderPath),
+	})
+	if err == nil {
+		// Folder already exists
+		return nil
+	}
+
+	// Create an empty object with trailing slash to represent the folder
+	_, err = m.Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(folderPath),
+		Body:          bytes.NewReader([]byte{}),
+		ContentLength: aws.Int64(0),
+		ContentType:   aws.String("application/x-directory"),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create folder marker: %w", err)
+	}
+
 	return nil
 }

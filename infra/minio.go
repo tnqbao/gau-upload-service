@@ -120,7 +120,7 @@ func (m *MinioClient) GetObjectFromBucket(ctx context.Context, bucket, key strin
 	}
 	defer func() {
 		_ = resp.Body.Close()
-	}()D
+	}()
 
 	buf := new(bytes.Buffer)
 	if _, err := io.Copy(buf, resp.Body); err != nil {

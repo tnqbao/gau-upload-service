@@ -24,7 +24,7 @@ gau-upload-service/
 │   ├── env_config.go
 │   └── main.go
 ├── controller/
-│   ├── image.go
+│   ├── file.go
 │   └── main.go
 ├── deploy/
 │   └── k8s/
@@ -54,14 +54,18 @@ gau-upload-service/
 │               ├── secret.yaml
 │               └── service.yaml
 ├── infra/
-│   ├── cloudflare_r2.go
+│   ├── logger.go
 │   ├── main.go
+│   ├── minio.go
+│   ├── parquet.go
 │   ├── postgres.go
 │   └── redis.go
 ├── middlewares/
 │   ├── main.go
 │   └── private.go
-├── migrations/
+├── provider/
+│   ├── logger.go
+│   └── main.go
 ├── repository/
 │   └── main.go
 ├── routes/
@@ -80,9 +84,9 @@ gau-upload-service/
 | `config/`                     | Environment loading and configuration logic             | Logic cấu hình và load môi trường      |
 | `controller/`                 | HTTP handlers for file upload operations                | Xử lý HTTP cho upload file             |
 | `deploy/k8s/`                 | Kubernetes manifests and scripts for staging/production | Manifest và script triển khai trên K8s |
-| `infra/`                      | Cloud storage (R2), PostgreSQL, Redis setup            | Thiết lập cloud storage, DB và Redis   |
+| `infra/`                      | MinIO, PostgreSQL, Redis, Parquet setup                 | Thiết lập MinIO, DB, Redis và Parquet  |
 | `middlewares/`                | Authentication and other middleware logic               | Middleware xác thực                    |
-| `migrations/`                 | SQL migration files                                     | Các file migration SQL                 |
+| `provider/`                   | Logger and other service providers                      | Logger và các provider khác            |
 | `repository/`                 | Data access and business logic                          | Truy cập và xử lý dữ liệu              |
 | `routes/`                     | API route definitions                                   | Định nghĩa route                       |
 | `utils/`                      | File validation and utility functions                   | Kiểm tra file và hàm tiện ích          |
@@ -94,18 +98,22 @@ gau-upload-service/
 ### 📤 File Upload | Upload File
 
 **English:**
-- Support for images (JPEG, PNG, WebP)
+- Support for images (JPEG, PNG, WebP) and various file types
 - File size validation with configurable limits
-- Automatic file name sanitization (removes special characters and spaces)
-- Organized storage with custom folder paths
-- Upload to Cloudflare R2 cloud storage
+- Automatic file name sanitization using SHA-256 hash
+- Organized storage with custom folder paths (supports nested paths like `abc/def`)
+- Upload to MinIO/S3-compatible storage
+- File deduplication using Parquet metadata storage
+- Automatic bucket creation if not exists
 
 **Tiếng Việt:**
-- Hỗ trợ hình ảnh (JPEG, PNG, WebP)
+- Hỗ trợ hình ảnh (JPEG, PNG, WebP) và nhiều loại file khác
 - Kiểm tra kích thước file với giới hạn có thể cấu hình
-- Tự động làm sạch tên file (loại bỏ ký tự đặc biệt và khoảng trống)
-- Lưu trữ có tổ chức với đường dẫn thư mục tùy chỉnh
-- Upload lên Cloudflare R2 cloud storage
+- Tự động làm sạch tên file bằng SHA-256 hash
+- Lưu trữ có tổ chức với đường dẫn thư mục tùy chỉnh (hỗ trợ path lồng nhau như `abc/def`)
+- Upload lên MinIO/S3-compatible storage
+- Loại bỏ trùng lặp file bằng Parquet metadata
+- Tự động tạo bucket nếu chưa tồn tại
 
 ### 🔒 Security | Bảo mật
 
@@ -113,37 +121,219 @@ gau-upload-service/
 - File type validation based on content type
 - File size limits to prevent abuse
 - Input sanitization for file names and paths
+- Path traversal protection (blocks `..` in paths)
 
 **Tiếng Việt:**
 - Kiểm tra loại file dựa trên content type
 - Giới hạn kích thước file để tránh lạm dụng
 - Làm sạch đầu vào cho tên file và đường dẫn
+- Bảo vệ path traversal (chặn `..` trong đường dẫn)
 
 ---
 
 ## API Endpoints | Điểm cuối API
 
-### POST /upload/image
+### POST /api/v2/upload/file
+
+**Upload a file with optional path organization**
 
 **Request:**
 ```bash
 curl -X POST \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@image.jpg" \
-  -F "file_path=user_avatars" \
-  http://localhost:8080/upload/image
+  -F "bucket=my-bucket" \
+  -F "path=user_avatars/profiles" \
+  http://localhost:8080/api/v2/upload/file
 ```
 
 **Response:**
 ```json
 {
-  "file_path": "user_avatars/image_cleaned_name.jpg",
-  "message": "File uploaded successfully"
+  "file_path": "user_avatars/profiles/abc123def456...hash.jpg",
+  "file_hash": "abc123def456...hash",
+  "message": "File uploaded successfully",
+  "bucket": "my-bucket",
+  "content_type": "image/jpeg",
+  "size": 102400,
+  "duplicated": false
 }
 ```
 
 **Parameters:**
-- `file`: The image file to upload
-- `file_path`: Folder name where the file will be stored (acts as bucket folder)
+- `file`: The file to upload (required)
+- `bucket`: Bucket name where the file will be stored (required)
+- `path`: Optional folder path (e.g., `user_avatars/profiles`)
+
+---
+
+### GET /api/v2/upload/file
+
+**Retrieve a file from storage**
+
+**Request:**
+```bash
+curl -X GET \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  "http://localhost:8080/api/v2/upload/file?bucket=my-bucket&file_path=user_avatars/profiles/abc123.jpg"
+```
+
+**Response:** Returns the file with appropriate content-type header
+
+**Parameters:**
+- `bucket`: Bucket name (required)
+- `file_path`: Full path to the file (required)
+
+---
+
+### DELETE /api/v2/upload/file
+
+**Delete a file from storage**
+
+**Request:**
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  "http://localhost:8080/api/v2/upload/file?bucket=my-bucket&file_path=user_avatars/profiles/abc123.jpg"
+```
+
+---
+
+### GET /api/v2/upload/files/list
+
+**List files in a bucket with optional prefix filter**
+
+**Request:**
+```bash
+curl -X GET \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  "http://localhost:8080/api/v2/upload/files/list?bucket=my-bucket&prefix=user_avatars"
+```
+
+---
+
+## Configuration | Cấu hình
+
+### Environment Variables | Biến môi trường
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `IMAGE_MAX_SIZE` | Maximum image size in bytes | 5242880 (5MB) |
+| `FILE_MAX_SIZE` | Maximum file size in bytes | 10485760 (10MB) |
+| `MINIO_ENDPOINT` | MinIO/S3 endpoint URL | - |
+| `MINIO_ACCESS_KEY_ID` | MinIO access key | - |
+| `MINIO_SECRET_ACCESS_KEY` | MinIO secret key | - |
+| `MINIO_REGION` | MinIO region | us-east-1 |
+| `MINIO_USE_SSL` | Use SSL for MinIO connection | false |
+| `PRIVATE_KEY` | Authentication key for private middleware | - |
+| `GRAFANA_OTLP_ENDPOINT` | Grafana OTLP endpoint for logging | - |
+| `SERVICE_NAME` | Service name for logging | gau-upload-service |
+
+---
+
+## Troubleshooting | Khắc phục sự cố
+
+### ❌ Error 404: NoSuchKey when accessing files via CDN
+
+**English:**
+
+**Problem:** Files uploaded successfully to MinIO but return 404 when accessed via CDN service.
+
+**Common Causes:**
+
+1. **Bucket name mismatch**: Upload service saves to bucket A, but CDN reads from bucket B
+   - **Solution**: Ensure both services use the same bucket name
+   - Check logs: `[Upload File] File uploaded successfully: path/to/file.jpg`
+   - Verify CDN is querying the same bucket
+
+2. **Path mismatch**: File path doesn't match between upload and retrieval
+   - **Upload returns**: `"file_path": "user_avatars/abc123.jpg"`
+   - **CDN must use exact path**: `user_avatars/abc123.jpg` (no leading `/`)
+   - **Solution**: Store and use the exact `file_path` from upload response
+
+3. **Folder markers interference** (Fixed in latest version):
+   - Previous versions created empty folder objects (e.g., `abc/`, `def/`)
+   - These could confuse some CDN configurations
+   - **Solution**: Update to latest version (folder markers removed)
+
+4. **Path normalization issues**:
+   - Ensure no leading/trailing slashes in file_path
+   - Use forward slashes `/`, not backslashes `\`
+   - Example: ✅ `folder/file.jpg` ❌ `/folder/file.jpg` ❌ `folder\file.jpg`
+
+**Debugging Steps:**
+
+1. Check upload service logs for the exact bucket and path:
+   ```
+   [Upload File] File uploaded successfully: user_avatars/abc123.jpg (hash: abc123...)
+   ```
+
+2. Check CDN service logs for the bucket and path it's requesting:
+   ```
+   [Get File] Request received - Bucket: my-bucket, Path: user_avatars/abc123.jpg
+   ```
+
+3. Verify file exists in MinIO using MinIO Console or CLI:
+   ```bash
+   mc ls myminio/my-bucket/user_avatars/
+   ```
+
+4. Test direct retrieval via upload service API:
+   ```bash
+   curl "http://upload-service/api/v2/upload/file?bucket=my-bucket&file_path=user_avatars/abc123.jpg"
+   ```
+
+5. Compare the paths - they must match exactly (case-sensitive)
+
+**Tiếng Việt:**
+
+**Vấn đề:** File upload thành công lên MinIO nhưng trả về 404 khi truy cập qua CDN service.
+
+**Nguyên nhân phổ biến:**
+
+1. **Bucket name không khớp**: Upload service lưu vào bucket A, CDN đọc từ bucket B
+   - **Giải pháp**: Đảm bảo cả 2 service dùng cùng tên bucket
+   - Kiểm tra log: `[Upload File] File uploaded successfully: path/to/file.jpg`
+   - Xác minh CDN đang query đúng bucket
+
+2. **Path không khớp**: Đường dẫn file không giống nhau giữa upload và truy xuất
+   - **Upload trả về**: `"file_path": "user_avatars/abc123.jpg"`
+   - **CDN phải dùng path chính xác**: `user_avatars/abc123.jpg` (không có `/` ở đầu)
+   - **Giải pháp**: Lưu và dùng đúng `file_path` từ response upload
+
+3. **Folder markers gây nhiễu** (Đã fix ở phiên bản mới):
+   - Phiên bản cũ tạo các object folder rỗng (vd: `abc/`, `def/`)
+   - Có thể gây nhầm lẫn cho một số cấu hình CDN
+   - **Giải pháp**: Update lên phiên bản mới (đã xóa folder markers)
+
+4. **Vấn đề chuẩn hóa path**:
+   - Đảm bảo không có dấu `/` ở đầu/cuối file_path
+   - Dùng dấu gạch chéo `/`, không dùng `\`
+   - Ví dụ: ✅ `folder/file.jpg` ❌ `/folder/file.jpg` ❌ `folder\file.jpg`
+
+**Các bước debug:**
+
+1. Kiểm tra log upload service để biết chính xác bucket và path:
+   ```
+   [Upload File] File uploaded successfully: user_avatars/abc123.jpg (hash: abc123...)
+   ```
+
+2. Kiểm tra log CDN service để biết bucket và path nó đang request:
+   ```
+   [Get File] Request received - Bucket: my-bucket, Path: user_avatars/abc123.jpg
+   ```
+
+3. Xác minh file tồn tại trong MinIO bằng Console hoặc CLI:
+   ```bash
+   mc ls myminio/my-bucket/user_avatars/
+   ```
+
+4. Test truy xuất trực tiếp qua API upload service:
+   ```bash
+   curl "http://upload-service/api/v2/upload/file?bucket=my-bucket&file_path=user_avatars/abc123.jpg"
+   ```
+
+5. So sánh các path - chúng phải khớp chính xác (phân biệt chữ hoa/thường)
 
 ---
 
@@ -158,7 +348,12 @@ curl -X POST \
    ```
 2. Run the container:
    ```bash
-   docker run -p 8080:8080 gau-upload-service
+   docker run -p 8080:8080 \
+     -e MINIO_ENDPOINT=http://minio:9000 \
+     -e MINIO_ACCESS_KEY_ID=minioadmin \
+     -e MINIO_SECRET_ACCESS_KEY=minioadmin \
+     -e PRIVATE_KEY=your-secret-key \
+     gau-upload-service
    ```
 
 **Tiếng Việt:**
@@ -168,7 +363,12 @@ curl -X POST \
    ```
 2. Chạy container:
    ```bash
-   docker run -p 8080:8080 gau-upload-service
+   docker run -p 8080:8080 \
+     -e MINIO_ENDPOINT=http://minio:9000 \
+     -e MINIO_ACCESS_KEY_ID=minioadmin \
+     -e MINIO_SECRET_ACCESS_KEY=minioadmin \
+     -e PRIVATE_KEY=your-secret-key \
+     gau-upload-service
    ```
 
 ---
@@ -198,20 +398,6 @@ curl -X POST \
    ```bash
    ./unapply.sh
    ```
-
----
-
-## Configuration | Cấu hình
-
-### Environment Variables | Biến môi trường
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `IMAGE_MAX_SIZE` | Maximum image size in MB | 10 |
-| `R2_ENDPOINT` | Cloudflare R2 endpoint | - |
-| `R2_ACCESS_KEY` | R2 access key | - |
-| `R2_SECRET_KEY` | R2 secret key | - |
-| `R2_BUCKET_NAME` | R2 bucket name | - |
 
 ---
 

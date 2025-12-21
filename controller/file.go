@@ -114,21 +114,9 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Upload to root: %s", fullPath)
 	}
 
-	// If custom path provided, ensure folders exist in MinIO FIRST (before checking deduplication)
-	if customPath != "" {
-		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Creating folder structure for path: %s", customPath)
-		segments := strings.Split(customPath, "/")
-		for i := 0; i < len(segments); i++ {
-			folder := strings.Join(segments[:i+1], "/")
-			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Creating folder: %s", folder)
-			if err := ctrl.Infrastructure.MinioClient.CreateFolderIfNotExist(ctx, bucketName, folder); err != nil {
-				ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create folder in MinIO: %s", folder)
-				utils.JSON500(c, "Failed to create folder: "+err.Error())
-				return
-			}
-			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Successfully created folder: %s/", folder)
-		}
-	}
+	// Note: MinIO/S3 automatically handles directory hierarchy
+	// No need to create explicit folder markers - they can cause issues with CDN
+	// The path separators in the key are sufficient for organization
 
 	// Check if file already exists by hash in metadata using Parquet
 	existingFile, exists, err := ctrl.Infrastructure.ParquetService.CheckFileByHash(ctx, bucketName, fileHash)
@@ -212,6 +200,8 @@ func (ctrl *Controller) GetFile(c *gin.Context) {
 	filePath := c.Query("file_path")
 	bucketName := c.Query("bucket")
 
+	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Get File] Request received - Bucket: %s, Path: %s", bucketName, filePath)
+
 	if filePath == "" {
 		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Get File] file_path is required")
 		utils.JSON400(c, "file_path is required")
@@ -226,11 +216,12 @@ func (ctrl *Controller) GetFile(c *gin.Context) {
 
 	data, contentType, err := ctrl.Infrastructure.MinioClient.GetObjectFromBucket(ctx, bucketName, filePath)
 	if err != nil {
-		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Get File] Failed to get file from MinIO")
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Get File] Failed to get file from MinIO - Bucket: %s, Path: %s, Error: %v", bucketName, filePath, err)
 		utils.JSON404(c, "File not found: "+err.Error())
 		return
 	}
 
+	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Get File] File retrieved successfully - Bucket: %s, Path: %s, ContentType: %s, Size: %d bytes", bucketName, filePath, contentType, len(data))
 	c.Data(http.StatusOK, contentType, data)
 }
 

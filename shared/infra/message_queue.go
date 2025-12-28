@@ -22,10 +22,10 @@ func InitRabbitMQClient(cfg *config.EnvConfig) *RabbitMQClient {
 	if rabbitUser == "" || rabbitPassword == "" || rabbitHost == "" || rabbitPort == "" {
 		log.Println("Warning: One or more RabbitMQ config values are missing, using defaults")
 		if rabbitUser == "" {
-			rabbitUser = "guest"
+			rabbitUser = ""
 		}
 		if rabbitPassword == "" {
-			rabbitPassword = "guest"
+			rabbitPassword = ""
 		}
 		if rabbitHost == "" {
 			rabbitHost = "localhost"

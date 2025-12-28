@@ -28,7 +28,6 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get update && sudo apt-get install -y sshpass
 
-
       - name: Download .env from server
         run: |
           sshpass -p "${{ secrets.SERVER_PASSWORD }}" scp -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/tnqbao/.enviroment/gau-upload-service/staging.env ./deploy/k8s/staging/.env
@@ -58,5 +57,6 @@ jobs:
       - name: Restart pods
         run: |
           kubectl rollout restart deployment gau-upload-http-deployment -n bao-staging-env
+          kubectl rollout restart deployment gau-upload-consumer-deployment -n bao-staging-env
           sleep 10
           kubectl get pods -n bao-staging-env

@@ -244,6 +244,8 @@ func (ctrl *Controller) GetFile(c *gin.Context) {
 	filePath := c.Query("file_path")
 	bucketName := c.Query("bucket")
 
+	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Get File] Request received - Bucket: %s, Path: %s", bucketName, filePath)
+
 	if filePath == "" {
 		ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Get File] file_path is required")
 		utils.JSON400(c, "file_path is required")
@@ -258,11 +260,12 @@ func (ctrl *Controller) GetFile(c *gin.Context) {
 
 	data, contentType, err := ctrl.Infrastructure.MinioClient.GetObjectFromBucket(ctx, bucketName, filePath)
 	if err != nil {
-		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Get File] Failed to get file from MinIO")
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Get File] Failed to get file from MinIO - Bucket: %s, Path: %s, Error: %v", bucketName, filePath, err)
 		utils.JSON404(c, "File not found: "+err.Error())
 		return
 	}
 
+	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Get File] File retrieved successfully - Bucket: %s, Path: %s, ContentType: %s, Size: %d bytes", bucketName, filePath, contentType, len(data))
 	c.Data(http.StatusOK, contentType, data)
 }
 

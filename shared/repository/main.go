@@ -1,6 +1,8 @@
 package repository
 
-import "github.com/tnqbao/gau-upload-service/config"
+import (
+	"github.com/tnqbao/gau-upload-service/shared/config"
+)
 
 type Repository struct {
 }

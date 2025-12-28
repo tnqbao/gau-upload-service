@@ -11,7 +11,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	appconfig "github.com/tnqbao/gau-upload-service/config"
+	appconfig "github.com/tnqbao/gau-upload-service/shared/config"
 )
 
 type MinioClient struct {
@@ -76,6 +76,27 @@ func (m *MinioClient) PutObjectWithMetadata(ctx context.Context, bucket, key str
 	})
 	if err != nil {
 		return fmt.Errorf("failed to put object with metadata: %w", err)
+	}
+	return nil
+}
+
+// PutObjectStreamWithMetadata uploads an object from a stream with custom metadata
+func (m *MinioClient) PutObjectStreamWithMetadata(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string, metadata map[string]string) error {
+	// Ensure bucket exists
+	if err := m.EnsureBucketByName(ctx, bucket); err != nil {
+		return err
+	}
+
+	_, err := m.Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(key),
+		Body:          reader,
+		ContentLength: aws.Int64(size),
+		ContentType:   aws.String(contentType),
+		Metadata:      metadata,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to put object stream with metadata: %w", err)
 	}
 	return nil
 }

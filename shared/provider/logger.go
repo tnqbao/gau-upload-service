@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/tnqbao/gau-upload-service/infra"
+	"github.com/tnqbao/gau-upload-service/shared/infra"
 )
 
 // LoggerProvider wraps the infra logger to provide a consistent interface

@@ -1,7 +1,7 @@
 package provider
 
 import (
-	"github.com/tnqbao/gau-upload-service/config"
+	"github.com/tnqbao/gau-upload-service/shared/config"
 )
 
 type Provider struct {

@@ -1,10 +1,10 @@
 package controller
 
 import (
-	"github.com/tnqbao/gau-upload-service/config"
-	"github.com/tnqbao/gau-upload-service/infra"
-	"github.com/tnqbao/gau-upload-service/provider"
-	"github.com/tnqbao/gau-upload-service/repository"
+	"github.com/tnqbao/gau-upload-service/shared/config"
+	"github.com/tnqbao/gau-upload-service/shared/infra"
+	"github.com/tnqbao/gau-upload-service/shared/provider"
+	"github.com/tnqbao/gau-upload-service/shared/repository"
 )
 
 type Controller struct {

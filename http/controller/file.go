@@ -1,19 +1,19 @@
 package controller
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tnqbao/gau-upload-service/infra"
-	"github.com/tnqbao/gau-upload-service/utils"
+	"github.com/tnqbao/gau-upload-service/shared/infra"
+	"github.com/tnqbao/gau-upload-service/shared/utils"
 )
 
 // UploadFile handles generic file upload with deduplication using Parquet
@@ -65,34 +65,67 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		return
 	}
 
-	// Open and read file
-	file, err := fileHeader.Open()
+	// Open uploaded file stream
+	srcFile, err := fileHeader.Open()
 	if err != nil {
 		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to open uploaded file")
 		utils.JSON500(c, "Failed to open file: "+err.Error())
 		return
 	}
-	defer file.Close()
+	defer srcFile.Close()
 
-	// Read file data
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, file)
-	if err != nil {
-		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to read uploaded file")
-		utils.JSON500(c, "Failed to read file: "+err.Error())
+	// Create a temporary file to store the content while hashing
+	tempDir := ctrl.Config.EnvConfig.ChunkConfig.TempDir
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
+	// Ensure temp dir exists
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create temp dir")
+		utils.JSON500(c, "Failed to create temp dir: "+err.Error())
 		return
 	}
 
-	data := buf.Bytes()
+	tempFile, err := os.CreateTemp(tempDir, "upload-*")
+	if err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create temp file")
+		utils.JSON500(c, "Failed to create temp file: "+err.Error())
+		return
+	}
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFile.Name()) // Clean up temp file
+	}()
 
-	// Calculate SHA-256 hash for deduplication
-	hash := sha256.Sum256(data)
-	fileHash := hex.EncodeToString(hash[:])
+	// Create hasher
+	hasher := sha256.New()
+
+	// Stream from source to both temp file and hasher
+	writer := io.MultiWriter(tempFile, hasher)
+
+	// Copy data
+	if _, err := io.Copy(writer, srcFile); err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to stream file to temp storage")
+		utils.JSON500(c, "Failed to stream file: "+err.Error())
+		return
+	}
+
+	// Calculate SHA-256 hash
+	fileHash := hex.EncodeToString(hasher.Sum(nil))
 
 	// Detect content type
 	contentType := fileHeader.Header.Get("Content-Type")
 	if contentType == "" {
-		contentType = http.DetectContentType(data)
+		// If content type is missing, we need to detect it.
+		// We can read the first 512 bytes from the temp file.
+		if _, err := tempFile.Seek(0, 0); err != nil {
+			ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to seek temp file")
+			utils.JSON500(c, "Failed to seek file: "+err.Error())
+			return
+		}
+		buffer := make([]byte, 512)
+		n, _ := tempFile.Read(buffer)
+		contentType = http.DetectContentType(buffer[:n])
 	}
 
 	// Get file extension
@@ -102,7 +135,6 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 	}
 
 	// Construct file path with proper directory structure
-	// MinIO automatically creates folders when uploading with path separators
 	var fullPath string
 	if customPath != "" {
 		// Path will be: path/hash.ext (e.g., "abc/def/abc123.jpg")
@@ -114,19 +146,16 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Upload to root: %s", fullPath)
 	}
 
-	// If custom path provided, ensure folders exist in MinIO FIRST (before checking deduplication)
+	// If custom path provided, ensure folders exist in MinIO FIRST
 	if customPath != "" {
-		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Creating folder structure for path: %s", customPath)
+		// ... existing folder creation logic ...
 		segments := strings.Split(customPath, "/")
 		for i := 0; i < len(segments); i++ {
 			folder := strings.Join(segments[:i+1], "/")
-			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Creating folder: %s", folder)
 			if err := ctrl.Infrastructure.MinioClient.CreateFolderIfNotExist(ctx, bucketName, folder); err != nil {
-				ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to create folder in MinIO: %s", folder)
-				utils.JSON500(c, "Failed to create folder: "+err.Error())
-				return
+				// Don't fail hard on folder creation if it might exist
+				ctrl.Provider.LoggerProvider.WarningWithContextf(ctx, "[Upload File] Warning: Failed to create folder %s: %v", folder, err)
 			}
-			ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Successfully created folder: %s/", folder)
 		}
 	}
 
@@ -160,14 +189,23 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		}
 	}
 
-	// Upload file with metadata to MinIO
+	// Prepare to upload from temp file
+	// Reset temp file pointer to beginning
+	if _, err := tempFile.Seek(0, 0); err != nil {
+		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to seek temp file for upload")
+		utils.JSON500(c, "Failed to prepare file for upload: "+err.Error())
+		return
+	}
+
+	// Upload file stream with metadata to MinIO
 	metadata := map[string]string{
 		"file-hash":     fileHash,
 		"original-name": fileHeader.Filename,
 		"content-type":  contentType,
 	}
 
-	if err := ctrl.Infrastructure.MinioClient.PutObjectWithMetadata(ctx, bucketName, fullPath, data, contentType, metadata); err != nil {
+	// Use Stream upload
+	if err := ctrl.Infrastructure.MinioClient.PutObjectStreamWithMetadata(ctx, bucketName, fullPath, tempFile, fileHeader.Size, contentType, metadata); err != nil {
 		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to upload file to MinIO")
 		utils.JSON500(c, "Failed to upload file: "+err.Error())
 		return
@@ -187,12 +225,6 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		ctrl.Provider.LoggerProvider.ErrorWithContextf(ctx, err, "[Upload File] Failed to save metadata to Parquet")
 		// Don't fail the request, just log the error
 	}
-
-	// Clear sensitive data from memory
-	for i := range data {
-		data[i] = 0
-	}
-	buf.Reset()
 
 	ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] File uploaded successfully: %s (hash: %s)", fullPath, fileHash)
 	utils.JSON200(c, gin.H{

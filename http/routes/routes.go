@@ -2,8 +2,8 @@ package routes
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/tnqbao/gau-upload-service/controller"
-	"github.com/tnqbao/gau-upload-service/middlewares"
+	"github.com/tnqbao/gau-upload-service/http/controller"
+	"github.com/tnqbao/gau-upload-service/http/middlewares"
 )
 
 func SetupRouter(ctrl *controller.Controller) *gin.Engine {

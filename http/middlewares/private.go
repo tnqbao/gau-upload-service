@@ -2,8 +2,8 @@ package middlewares
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/tnqbao/gau-upload-service/config"
-	"github.com/tnqbao/gau-upload-service/utils"
+	"github.com/tnqbao/gau-upload-service/shared/config"
+	"github.com/tnqbao/gau-upload-service/shared/utils"
 )
 
 func PrivateMiddleware(config *config.EnvConfig) gin.HandlerFunc {

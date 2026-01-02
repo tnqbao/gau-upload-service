@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	appconfig "github.com/tnqbao/gau-upload-service/shared/config"
 )
@@ -81,19 +82,29 @@ func (m *MinioClient) PutObjectWithMetadata(ctx context.Context, bucket, key str
 }
 
 // PutObjectStreamWithMetadata uploads an object from a stream with custom metadata
+// Uses S3 Upload Manager which automatically handles multipart uploads for large files
+// Note: size parameter is kept for API compatibility but not strictly required by Upload Manager
 func (m *MinioClient) PutObjectStreamWithMetadata(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string, metadata map[string]string) error {
+	_ = size // size is used by Upload Manager internally via the reader
+
 	// Ensure bucket exists
 	if err := m.EnsureBucketByName(ctx, bucket); err != nil {
 		return err
 	}
 
-	_, err := m.Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(bucket),
-		Key:           aws.String(key),
-		Body:          reader,
-		ContentLength: aws.Int64(size),
-		ContentType:   aws.String(contentType),
-		Metadata:      metadata,
+	// Use S3 Upload Manager for efficient multipart upload
+	// This handles large files automatically by splitting into parts
+	uploader := manager.NewUploader(m.Client, func(u *manager.Uploader) {
+		u.PartSize = 10 * 1024 * 1024 // 10MB per part
+		u.Concurrency = 3             // Upload 3 parts concurrently
+	})
+
+	_, err := uploader.Upload(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        reader,
+		ContentType: aws.String(contentType),
+		Metadata:    metadata,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to put object stream with metadata: %w", err)

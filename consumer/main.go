@@ -80,8 +80,9 @@ func main() {
 				// Process the message
 				if err := handler.HandleChunkedUpload(ctx, msg.Body); err != nil {
 					log.Printf("Error processing message: %v", err)
-					// Nack the message and requeue it
-					if nackErr := msg.Nack(false, true); nackErr != nil {
+					// Nack the message WITHOUT requeue to avoid infinite loop
+					// Failed messages should go to dead-letter queue or be logged for manual investigation
+					if nackErr := msg.Nack(false, false); nackErr != nil {
 						log.Printf("Failed to nack message: %v", nackErr)
 					}
 					continue

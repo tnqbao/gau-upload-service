@@ -3,9 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -42,7 +40,6 @@ type ChunkerService struct {
 	config           *config.Config
 	infra            *infra.Infra
 	defaultChunkSize int64
-	tempDir          string
 }
 
 // NewChunkerService creates a new chunker service
@@ -51,33 +48,14 @@ func NewChunkerService(cfg *config.Config, inf *infra.Infra) *ChunkerService {
 		config:           cfg,
 		infra:            inf,
 		defaultChunkSize: cfg.EnvConfig.ChunkConfig.DefaultChunkSize,
-		tempDir:          cfg.EnvConfig.ChunkConfig.TempDir,
 	}
 }
 
-// ProcessFile downloads a file from temp MinIO and uploads to main MinIO as a single file
-// The file is downloaded in chunks to handle large files, but saved as a single file at destination
+// ProcessFile streams a file from temp MinIO directly to main MinIO without disk I/O
+// The file has already been merged by the backend, consumer just moves it to the final destination
 func (s *ChunkerService) ProcessFile(ctx context.Context, req ChunkRequest) (*ProcessResult, error) {
 	log.Printf("[Chunker] Processing file from %s/%s (size: %d bytes)",
 		req.TempBucket, req.TempPath, req.FileSize)
-
-	// Ensure temp directory exists
-	if err := os.MkdirAll(s.tempDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
-	}
-
-	// Download file from temp MinIO to local disk
-	localPath, err := s.downloadFromTemp(ctx, req.TempBucket, req.TempPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download from temp: %w", err)
-	}
-	defer os.Remove(localPath) // Clean up local file
-
-	// Get file info
-	fileInfo, err := os.Stat(localPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat local file: %w", err)
-	}
 
 	// Determine content type from metadata or default
 	contentType := "application/octet-stream"
@@ -104,11 +82,11 @@ func (s *ChunkerService) ProcessFile(ctx context.Context, req ChunkRequest) (*Pr
 		finalPath = fmt.Sprintf("%s%s", req.FileHash, ext)
 	}
 
-	log.Printf("[Chunker] Uploading file to %s/%s", req.TargetBucket, finalPath)
+	log.Printf("[Chunker] Streaming file to %s/%s (no disk I/O)", req.TargetBucket, finalPath)
 
-	// Upload file to main MinIO
-	if err := s.uploadToMain(ctx, localPath, req.TargetBucket, finalPath, contentType, req); err != nil {
-		return nil, fmt.Errorf("failed to upload to main MinIO: %w", err)
+	// Stream file directly from temp MinIO to main MinIO (no disk I/O)
+	if err := s.streamToMain(ctx, req.TempBucket, req.TempPath, req.TargetBucket, finalPath, contentType, req); err != nil {
+		return nil, fmt.Errorf("failed to stream to main MinIO: %w", err)
 	}
 
 	// Clean up temp file in temp MinIO
@@ -120,7 +98,7 @@ func (s *ChunkerService) ProcessFile(ctx context.Context, req ChunkRequest) (*Pr
 	result := &ProcessResult{
 		OriginalFile: req.OriginalName,
 		FileHash:     req.FileHash,
-		TotalSize:    fileInfo.Size(),
+		TotalSize:    req.FileSize,
 		FilePath:     finalPath,
 		ContentType:  contentType,
 		CreatedAt:    time.Now(),
@@ -133,58 +111,16 @@ func (s *ChunkerService) ProcessFile(ctx context.Context, req ChunkRequest) (*Pr
 	return result, nil
 }
 
-// downloadFromTemp downloads a file from temp MinIO to local disk
-func (s *ChunkerService) downloadFromTemp(ctx context.Context, bucket, path string) (string, error) {
-	log.Printf("[Chunker] Downloading file from temp MinIO: %s/%s", bucket, path)
+// streamToMain streams a file directly from temp MinIO to main MinIO without disk I/O
+func (s *ChunkerService) streamToMain(ctx context.Context, tempBucket, tempPath, mainBucket, mainKey, contentType string, req ChunkRequest) error {
+	log.Printf("[Chunker] Starting direct stream from %s/%s to %s/%s", tempBucket, tempPath, mainBucket, mainKey)
 
-	// Get object stream
-	stream, _, err := s.infra.TempMinioClient.GetObjectStream(ctx, bucket, path)
+	// Get object stream from temp MinIO
+	stream, size, err := s.infra.TempMinioClient.GetObjectStream(ctx, tempBucket, tempPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to get object stream: %w", err)
+		return fmt.Errorf("failed to get object stream: %w", err)
 	}
 	defer stream.Close()
-
-	// Create local temp file
-	localPath := filepath.Join(s.tempDir, filepath.Base(path))
-	file, err := os.Create(localPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create local file: %w", err)
-	}
-	defer file.Close()
-
-	// Copy stream to local file
-	written, err := io.Copy(file, stream)
-	if err != nil {
-		os.Remove(localPath)
-		return "", fmt.Errorf("failed to write to local file: %w", err)
-	}
-
-	log.Printf("[Chunker] Downloaded %d bytes to %s", written, localPath)
-	return localPath, nil
-}
-
-// uploadToMain uploads a local file to main MinIO
-func (s *ChunkerService) uploadToMain(ctx context.Context, localPath, bucket, key, contentType string, req ChunkRequest) error {
-	// Open local file
-	file, err := os.Open(localPath)
-	if err != nil {
-		return fmt.Errorf("failed to open local file: %w", err)
-	}
-	defer file.Close()
-
-	// Get file info
-	info, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat file: %w", err)
-	}
-
-	// Read file into memory (for files under 5GB this is acceptable)
-	// For very large files, we could implement multipart upload
-	data := make([]byte, info.Size())
-	_, err = io.ReadFull(file, data)
-	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
-	}
 
 	// Prepare metadata
 	metadata := map[string]string{
@@ -196,12 +132,13 @@ func (s *ChunkerService) uploadToMain(ctx context.Context, localPath, bucket, ke
 		metadata[k] = v
 	}
 
-	// Upload to main MinIO
-	if err := s.infra.MinioClient.PutObjectWithMetadata(ctx, bucket, key, data, contentType, metadata); err != nil {
-		return fmt.Errorf("failed to put object: %w", err)
+	// Stream directly to main MinIO using PutObjectStreamWithMetadata
+	// This method accepts io.Reader and streams without loading into memory
+	if err := s.infra.MinioClient.PutObjectStreamWithMetadata(ctx, mainBucket, mainKey, stream, size, contentType, metadata); err != nil {
+		return fmt.Errorf("failed to stream object: %w", err)
 	}
 
-	log.Printf("[Chunker] Uploaded %d bytes to %s/%s", info.Size(), bucket, key)
+	log.Printf("[Chunker] Successfully streamed %d bytes to %s/%s", size, mainBucket, mainKey)
 	return nil
 }
 

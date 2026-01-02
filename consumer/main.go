@@ -41,7 +41,7 @@ func main() {
 	chunkerService := service.NewChunkerService(cfg, inf)
 
 	// Create topic handler
-	handler := topic.NewChunkedUploadHandler(inf, chunkerService)
+	handler := topic.NewStreamUploadHandler(inf, chunkerService)
 
 	// Declare queue
 	if err := inf.RabbitMQ.DeclareQueue(QueueName, true, false); err != nil {
@@ -78,7 +78,7 @@ func main() {
 				log.Printf("Received message: %s", string(msg.Body))
 
 				// Process the message
-				if err := handler.HandleChunkedUpload(ctx, msg.Body); err != nil {
+				if err := handler.HandleStreamUpload(ctx, msg.Body); err != nil {
 					log.Printf("Error processing message: %v", err)
 					// Nack the message WITHOUT requeue to avoid infinite loop
 					// Failed messages should go to dead-letter queue or be logged for manual investigation

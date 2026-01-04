@@ -170,20 +170,24 @@ func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkC
 	// Use io.Pipe for true streaming without loading everything into memory
 	pipeReader, pipeWriter := io.Pipe()
 	hasher := sha256.New()
-	var totalSize int64
 
-	// Channel to capture errors from goroutine
-	errChan := make(chan error, 1)
+	// Channel to capture result from goroutine (size and error)
+	type streamResult struct {
+		totalSize int64
+		err       error
+	}
+	resultChan := make(chan streamResult, 1)
 
 	// Start streaming chunks in a goroutine
 	go func() {
 		defer pipeWriter.Close()
 
+		var totalSize int64
 		for i, chunkKey := range chunks {
 			// Get chunk stream from MinIO
 			chunkStream, size, err := h.infra.MinioClient.GetObjectStream(ctx, msg.TempBucket, chunkKey)
 			if err != nil {
-				errChan <- fmt.Errorf("failed to get chunk %d stream: %w", i, err)
+				resultChan <- streamResult{0, fmt.Errorf("failed to get chunk %d stream: %w", i, err)}
 				return
 			}
 
@@ -193,7 +197,7 @@ func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkC
 			chunkStream.Close()
 
 			if err != nil {
-				errChan <- fmt.Errorf("failed to stream chunk %d: %w", i, err)
+				resultChan <- streamResult{0, fmt.Errorf("failed to stream chunk %d: %w", i, err)}
 				return
 			}
 
@@ -201,7 +205,7 @@ func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkC
 			log.Printf("[ChunkComplete] Streamed chunk %d/%d (%d bytes, size hint: %d)", i+1, len(chunks), written, size)
 		}
 
-		errChan <- nil
+		resultChan <- streamResult{totalSize, nil}
 	}()
 
 	// 4. Determine final file path
@@ -237,12 +241,15 @@ func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkC
 		return "", 0, fmt.Errorf("failed to upload composed file: %w", err)
 	}
 
-	// Wait for streaming goroutine to finish
-	if streamErr := <-errChan; streamErr != nil {
+	// Wait for streaming goroutine to finish and get result
+	result := <-resultChan
+	if result.err != nil {
 		// Cleanup temp file
 		_ = h.infra.MinioClient.DeleteObject(ctx, msg.TargetBucket, tempUploadKey)
-		return "", 0, streamErr
+		return "", 0, result.err
 	}
+
+	totalSize := result.totalSize
 
 	// 6. Calculate final hash
 	fileHash := hex.EncodeToString(hasher.Sum(nil))

@@ -1,8 +1,10 @@
 package infra
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/tnqbao/gau-upload-service/shared/config"
@@ -134,4 +136,23 @@ func (r *RabbitMQClient) Consume(queueName, consumerTag string) (<-chan amqp.Del
 	}
 	log.Printf("Consumer registered for queue: %s", queueName)
 	return msgs, nil
+}
+
+// PublishToExchange publishes a message to an exchange with routing key
+func (r *RabbitMQClient) PublishToExchange(exchange, routingKey string, body []byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return r.Channel.PublishWithContext(
+		ctx,
+		exchange,   // exchange
+		routingKey, // routing key
+		false,      // mandatory
+		false,      // immediate
+		amqp.Publishing{
+			ContentType:  "application/json",
+			Body:         body,
+			DeliveryMode: amqp.Persistent,
+		},
+	)
 }

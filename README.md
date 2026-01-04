@@ -164,6 +164,33 @@ curl -X POST \
 - `file`: The file to upload (required)
 - `bucket`: Bucket name where the file will be stored (required)
 - `path`: Optional folder path (e.g., `user_avatars/profiles`)
+- `is_hash`: Optional boolean to control filename hashing (default: `true`)
+  - `true` or `1`: Use SHA-256 hash as filename (e.g., `abc123def456...hash.jpg`)
+  - `false` or `0`: Use original filename (sanitized for safety, e.g., `my_image.jpg`)
+
+**Example with original filename:**
+```bash
+curl -X POST \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "file=@my_document.pdf" \
+  -F "bucket=my-bucket" \
+  -F "path=documents" \
+  -F "is_hash=false" \
+  http://localhost:8080/api/v2/upload/file
+```
+
+**Response:**
+```json
+{
+  "file_path": "documents/my_document.pdf",
+  "file_hash": "abc123def456...hash",
+  "message": "File uploaded successfully",
+  "bucket": "my-bucket",
+  "content_type": "application/pdf",
+  "size": 204800,
+  "duplicated": false
+}
+```
 
 ---
 

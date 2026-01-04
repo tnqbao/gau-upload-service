@@ -10,6 +10,7 @@ import (
 	"log"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/tnqbao/gau-upload-service/shared/infra"
@@ -131,9 +132,26 @@ func (h *ChunkCompleteHandler) HandleChunkComplete(ctx context.Context, body []b
 func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkCompleteMessage) (string, int64, error) {
 	// 1. List all chunks from pending bucket
 	chunkPrefix := msg.TempPrefix // e.g., "{upload_id}/"
-	chunks, err := h.infra.MinioClient.ListObjectsFromBucket(ctx, msg.TempBucket, chunkPrefix)
+	allObjects, err := h.infra.MinioClient.ListObjectsFromBucket(ctx, msg.TempBucket, chunkPrefix)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to list chunks: %w", err)
+	}
+
+	// Filter out folder markers and non-chunk files
+	// Only keep files ending with .part (actual chunk files)
+	var chunks []string
+	for _, key := range allObjects {
+		// Skip folder markers (keys ending with /)
+		if strings.HasSuffix(key, "/") {
+			log.Printf("[ChunkComplete] Skipping folder marker: %s", key)
+			continue
+		}
+		// Only include .part files (actual chunks)
+		if strings.HasSuffix(key, ".part") {
+			chunks = append(chunks, key)
+		} else {
+			log.Printf("[ChunkComplete] Skipping non-chunk file: %s", key)
+		}
 	}
 
 	if len(chunks) == 0 {
@@ -141,7 +159,7 @@ func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkC
 	}
 
 	if len(chunks) != msg.TotalChunks {
-		return "", 0, fmt.Errorf("chunk count mismatch: expected %d, found %d", msg.TotalChunks, len(chunks))
+		return "", 0, fmt.Errorf("chunk count mismatch: expected %d, found %d (total objects: %d)", msg.TotalChunks, len(chunks), len(allObjects))
 	}
 
 	// 2. Sort chunks by name (chunk_00000.part, chunk_00001.part, ...)

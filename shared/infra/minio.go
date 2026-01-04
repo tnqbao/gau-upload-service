@@ -83,27 +83,25 @@ func (m *MinioClient) PutObjectWithMetadata(ctx context.Context, bucket, key str
 
 // PutObjectStreamWithMetadata uploads an object from a stream with custom metadata
 // Uses S3 Upload Manager which automatically handles multipart uploads for large files
-// Note: size parameter is kept for API compatibility but not strictly required by Upload Manager
 func (m *MinioClient) PutObjectStreamWithMetadata(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string, metadata map[string]string) error {
 	// Ensure bucket exists
 	if err := m.EnsureBucketByName(ctx, bucket); err != nil {
 		return err
 	}
 
-	// Use S3 Upload Manager for efficient multipart upload
-	// Use Concurrency=1 for pipe/stream readers to avoid read conflicts
+	// Use S3 Upload Manager for streaming upload
+	// Do NOT set ContentLength - let Upload Manager handle it via multipart
 	uploader := manager.NewUploader(m.Client, func(u *manager.Uploader) {
-		u.PartSize = 10 * 1024 * 1024 // 10MB per part
-		u.Concurrency = 1             // Sequential upload for stream compatibility
+		u.PartSize = 5 * 1024 * 1024 // 5MB per part (minimum for S3)
+		u.Concurrency = 1            // Sequential for pipe/stream compatibility
 	})
 
 	_, err := uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(bucket),
-		Key:           aws.String(key),
-		Body:          reader,
-		ContentType:   aws.String(contentType),
-		ContentLength: aws.Int64(size), // Provide expected size
-		Metadata:      metadata,
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        reader,
+		ContentType: aws.String(contentType),
+		Metadata:    metadata,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to put object stream with metadata: %w", err)

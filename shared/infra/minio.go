@@ -164,6 +164,51 @@ func (m *MinioClient) GetObjectFromBucket(ctx context.Context, bucket, key strin
 	return buf.Bytes(), contentType, nil
 }
 
+// GetObjectStream gets an object as a stream (io.ReadCloser) without loading into memory
+func (m *MinioClient) GetObjectStream(ctx context.Context, bucket, key string) (io.ReadCloser, int64, error) {
+	resp, err := m.Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get object stream: %w", err)
+	}
+
+	size := int64(0)
+	if resp.ContentLength != nil {
+		size = *resp.ContentLength
+	}
+
+	return resp.Body, size, nil
+}
+
+// DeleteObject deletes an object from a bucket
+func (m *MinioClient) DeleteObject(ctx context.Context, bucket, key string) error {
+	_, err := m.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+	return nil
+}
+
+// CopyObject copies an object from source to destination within the same or different bucket
+func (m *MinioClient) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
+	copySource := fmt.Sprintf("%s/%s", srcBucket, srcKey)
+
+	_, err := m.Client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(dstBucket),
+		Key:        aws.String(dstKey),
+		CopySource: aws.String(copySource),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to copy object: %w", err)
+	}
+	return nil
+}
+
 // DeleteObjectFromBucket deletes an object from a specific bucket
 func (m *MinioClient) DeleteObjectFromBucket(ctx context.Context, bucket, key string) error {
 	_, err := m.Client.DeleteObject(ctx, &s3.DeleteObjectInput{

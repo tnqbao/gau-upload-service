@@ -11,8 +11,8 @@ import (
 	"github.com/tnqbao/gau-upload-service/shared/infra"
 )
 
-// ChunkedUploadMessage represents the message structure from the queue
-type ChunkedUploadMessage struct {
+// StreamUploadMessage represents the message structure from the queue
+type StreamUploadMessage struct {
 	UploadType   string            `json:"upload_type"`   // e.g., "zip", "video", "archive"
 	TempBucket   string            `json:"temp_bucket"`   // Bucket in temp MinIO
 	TempPath     string            `json:"temp_path"`     // Path in temp MinIO
@@ -25,26 +25,26 @@ type ChunkedUploadMessage struct {
 	Metadata     map[string]string `json:"metadata"`      // Additional metadata (user_id, upload_id, etc.)
 }
 
-// ChunkedUploadHandler handles chunked upload messages
-type ChunkedUploadHandler struct {
+// StreamUploadHandler handles chunked upload messages
+type StreamUploadHandler struct {
 	infra          *infra.Infra
 	chunkerService *service.ChunkerService
 }
 
-// NewChunkedUploadHandler creates a new chunked upload handler
-func NewChunkedUploadHandler(infra *infra.Infra, chunkerService *service.ChunkerService) *ChunkedUploadHandler {
-	return &ChunkedUploadHandler{
+// NewStreamUploadHandler creates a new chunked upload handler
+func NewStreamUploadHandler(infra *infra.Infra, chunkerService *service.ChunkerService) *StreamUploadHandler {
+	return &StreamUploadHandler{
 		infra:          infra,
 		chunkerService: chunkerService,
 	}
 }
 
-// HandleChunkedUpload processes a chunked upload message
-func (h *ChunkedUploadHandler) HandleChunkedUpload(ctx context.Context, body []byte) error {
+// HandleStreamUpload processes a chunked upload message
+func (h *StreamUploadHandler) HandleStreamUpload(ctx context.Context, body []byte) error {
 	startTime := time.Now()
 
 	// Parse message
-	var msg ChunkedUploadMessage
+	var msg StreamUploadMessage
 	if err := json.Unmarshal(body, &msg); err != nil {
 		return fmt.Errorf("failed to parse message: %w", err)
 	}
@@ -54,7 +54,7 @@ func (h *ChunkedUploadHandler) HandleChunkedUpload(ctx context.Context, body []b
 		return fmt.Errorf("invalid message: %w", err)
 	}
 
-	log.Printf("[ChunkedUpload] Processing file: %s (hash: %s, size: %d bytes)",
+	log.Printf("[StreamUpload] Processing file: %s (hash: %s, size: %d bytes)",
 		msg.OriginalName, msg.FileHash, msg.FileSize)
 
 	// Process the file using chunker service
@@ -76,14 +76,14 @@ func (h *ChunkedUploadHandler) HandleChunkedUpload(ctx context.Context, body []b
 	}
 
 	elapsed := time.Since(startTime)
-	log.Printf("[ChunkedUpload] Completed processing %s: uploaded to %s in %v",
+	log.Printf("[StreamUpload] Completed processing %s: uploaded to %s in %v",
 		msg.OriginalName, result.FilePath, elapsed)
 
 	return nil
 }
 
 // validateMessage validates the chunked upload message
-func (h *ChunkedUploadHandler) validateMessage(msg *ChunkedUploadMessage) error {
+func (h *StreamUploadHandler) validateMessage(msg *StreamUploadMessage) error {
 	if msg.TempBucket == "" {
 		return fmt.Errorf("temp_bucket is required")
 	}

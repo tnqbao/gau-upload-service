@@ -83,20 +83,17 @@ func (m *MinioClient) PutObjectWithMetadata(ctx context.Context, bucket, key str
 
 // PutObjectStreamWithMetadata uploads an object from a stream with custom metadata
 // Uses S3 Upload Manager which automatically handles multipart uploads for large files
-// Note: size parameter is kept for API compatibility but not strictly required by Upload Manager
 func (m *MinioClient) PutObjectStreamWithMetadata(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string, metadata map[string]string) error {
-	_ = size // size is used by Upload Manager internally via the reader
-
 	// Ensure bucket exists
 	if err := m.EnsureBucketByName(ctx, bucket); err != nil {
 		return err
 	}
 
-	// Use S3 Upload Manager for efficient multipart upload
-	// This handles large files automatically by splitting into parts
+	// Use S3 Upload Manager for streaming upload
+	// Do NOT set ContentLength - let Upload Manager handle it via multipart
 	uploader := manager.NewUploader(m.Client, func(u *manager.Uploader) {
-		u.PartSize = 10 * 1024 * 1024 // 10MB per part
-		u.Concurrency = 3             // Upload 3 parts concurrently
+		u.PartSize = 5 * 1024 * 1024 // 5MB per part (minimum for S3)
+		u.Concurrency = 1            // Sequential for pipe/stream compatibility
 	})
 
 	_, err := uploader.Upload(ctx, &s3.PutObjectInput{
@@ -162,6 +159,51 @@ func (m *MinioClient) GetObjectFromBucket(ctx context.Context, bucket, key strin
 
 	contentType := aws.ToString(resp.ContentType)
 	return buf.Bytes(), contentType, nil
+}
+
+// GetObjectStream gets an object as a stream (io.ReadCloser) without loading into memory
+func (m *MinioClient) GetObjectStream(ctx context.Context, bucket, key string) (io.ReadCloser, int64, error) {
+	resp, err := m.Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get object stream: %w", err)
+	}
+
+	size := int64(0)
+	if resp.ContentLength != nil {
+		size = *resp.ContentLength
+	}
+
+	return resp.Body, size, nil
+}
+
+// DeleteObject deletes an object from a bucket
+func (m *MinioClient) DeleteObject(ctx context.Context, bucket, key string) error {
+	_, err := m.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+	return nil
+}
+
+// CopyObject copies an object from source to destination within the same or different bucket
+func (m *MinioClient) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
+	copySource := fmt.Sprintf("%s/%s", srcBucket, srcKey)
+
+	_, err := m.Client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(dstBucket),
+		Key:        aws.String(dstKey),
+		CopySource: aws.String(copySource),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to copy object: %w", err)
+	}
+	return nil
 }
 
 // DeleteObjectFromBucket deletes an object from a specific bucket

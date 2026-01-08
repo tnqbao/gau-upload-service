@@ -57,6 +57,13 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		}
 	}
 
+	// Optional: Get is_hash parameter (defaults to true for backward compatibility)
+	isHashStr := strings.ToLower(strings.TrimSpace(c.PostForm("is_hash")))
+	isHash := true // default is true
+	if isHashStr == "false" || isHashStr == "0" {
+		isHash = false
+	}
+
 	maxUploadSize := ctrl.Config.EnvConfig.Limit.FileMaxSize
 
 	if fileHeader.Size > maxUploadSize {
@@ -134,20 +141,35 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		ext = getExtensionFromContentType(contentType)
 	}
 
+	// Construct file name based on is_hash parameter
+	var fileName string
+	if isHash {
+		// Use hash as filename
+		fileName = fileHash + ext
+	} else {
+		// Use original filename, but sanitize it
+		fileName = utils.SanitizeFileName(fileHeader.Filename)
+		// Ensure the sanitized name has the correct extension
+		if filepath.Ext(fileName) == "" && ext != "" {
+			fileName = fileName + ext
+		}
+	}
+
 	// Construct file path with proper directory structure
 	var fullPath string
 	if customPath != "" {
-		// Path will be: path/hash.ext (e.g., "abc/def/abc123.jpg")
-		fullPath = fmt.Sprintf("%s/%s%s", customPath, fileHash, ext)
+		// Path will be: path/filename (e.g., "abc/def/file.jpg" or "abc/def/abc123.jpg")
+		fullPath = fmt.Sprintf("%s/%s", customPath, fileName)
 		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Upload to path: %s", fullPath)
 	} else {
-		// No path specified, save to root: hash.ext
-		fullPath = fmt.Sprintf("%s%s", fileHash, ext)
+		// No path specified, save to root: filename
+		fullPath = fileName
 		ctrl.Provider.LoggerProvider.InfoWithContextf(ctx, "[Upload File] Upload to root: %s", fullPath)
 	}
 
 	// If custom path provided, ensure folders exist in MinIO FIRST
-	if customPath != "" {
+	// Skip for "pending" bucket as it only stores temporary chunks
+	if customPath != "" && bucketName != "pending" {
 		// ... existing folder creation logic ...
 		segments := strings.Split(customPath, "/")
 		for i := 0; i < len(segments); i++ {

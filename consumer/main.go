@@ -8,15 +8,20 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/tnqbao/gau-upload-service/consumer/service"
 	"github.com/tnqbao/gau-upload-service/consumer/topic"
 	"github.com/tnqbao/gau-upload-service/shared/config"
 	"github.com/tnqbao/gau-upload-service/shared/infra"
 )
 
 const (
-	QueueName   = "upload.chunked"
-	ConsumerTag = "gau-upload-consumer"
+	// ChunkCompleteQueue receives messages from cloud-orchestrator when all chunks are uploaded
+	ChunkCompleteQueue = "upload.chunk_complete"
+	ConsumerTag        = "gau-upload-consumer"
+
+	// Exchange and routing keys
+	UploadExchange             = "upload.exchange"
+	ChunkCompleteRoutingKey    = "upload.chunk_complete"
+	ComposeCompletedRoutingKey = "upload.compose_completed"
 )
 
 func main() {
@@ -37,19 +42,32 @@ func main() {
 		}
 	}()
 
-	// Create chunker service
-	chunkerService := service.NewChunkerService(cfg, inf)
-
-	// Create topic handler
-	handler := topic.NewStreamUploadHandler(inf, chunkerService)
-
-	// Declare queue
-	if err := inf.RabbitMQ.DeclareQueue(QueueName, true, false); err != nil {
-		log.Fatalf("Failed to declare queue: %v", err)
+	// Declare exchange
+	if err := inf.RabbitMQ.DeclareExchange(UploadExchange, "topic", true); err != nil {
+		log.Fatalf("Failed to declare exchange: %v", err)
 	}
 
-	// Start consuming messages
-	msgs, err := inf.RabbitMQ.Consume(QueueName, ConsumerTag)
+	// Declare and bind chunk_complete queue
+	if err := inf.RabbitMQ.DeclareQueue(ChunkCompleteQueue, true, false); err != nil {
+		log.Fatalf("Failed to declare chunk_complete queue: %v", err)
+	}
+	if err := inf.RabbitMQ.BindQueue(ChunkCompleteQueue, UploadExchange, ChunkCompleteRoutingKey); err != nil {
+		log.Fatalf("Failed to bind chunk_complete queue: %v", err)
+	}
+
+	// Declare compose_completed queue (for publishing back to cloud-orchestrator)
+	if err := inf.RabbitMQ.DeclareQueue("upload.compose_completed", true, false); err != nil {
+		log.Fatalf("Failed to declare compose_completed queue: %v", err)
+	}
+	if err := inf.RabbitMQ.BindQueue("upload.compose_completed", UploadExchange, ComposeCompletedRoutingKey); err != nil {
+		log.Fatalf("Failed to bind compose_completed queue: %v", err)
+	}
+
+	// Create chunk complete handler
+	handler := topic.NewChunkCompleteHandler(inf)
+
+	// Start consuming chunk_complete messages
+	msgs, err := inf.RabbitMQ.Consume(ChunkCompleteQueue, ConsumerTag)
 	if err != nil {
 		log.Fatalf("Failed to start consuming: %v", err)
 	}
@@ -63,7 +81,7 @@ func main() {
 
 	// Start message processing in goroutine
 	go func() {
-		log.Println("Consumer started. Waiting for messages...")
+		log.Printf("Consumer started. Listening for chunk_complete messages on queue: %s", ChunkCompleteQueue)
 		for {
 			select {
 			case <-ctx.Done():
@@ -75,11 +93,11 @@ func main() {
 					return
 				}
 
-				log.Printf("Received message: %s", string(msg.Body))
+				log.Printf("Received chunk_complete message: %s", string(msg.Body))
 
 				// Process the message
-				if err := handler.HandleStreamUpload(ctx, msg.Body); err != nil {
-					log.Printf("Error processing message: %v", err)
+				if err := handler.HandleChunkComplete(ctx, msg.Body); err != nil {
+					log.Printf("Error processing chunk_complete message: %v", err)
 					// Nack the message WITHOUT requeue to avoid infinite loop
 					// Failed messages should go to dead-letter queue or be logged for manual investigation
 					if nackErr := msg.Nack(false, false); nackErr != nil {
@@ -92,7 +110,7 @@ func main() {
 				if err := msg.Ack(false); err != nil {
 					log.Printf("Failed to ack message: %v", err)
 				}
-				log.Println("Message processed successfully")
+				log.Println("Chunk complete message processed successfully")
 			}
 		}
 	}()

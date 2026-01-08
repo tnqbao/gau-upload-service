@@ -15,14 +15,6 @@ type EnvConfig struct {
 		UseSSL    bool
 	}
 
-	TempMinio struct {
-		Endpoint  string
-		AccessKey string
-		SecretKey string
-		Region    string
-		UseSSL    bool
-	}
-
 	RabbitMQ struct {
 		Host     string
 		Port     string
@@ -67,30 +59,6 @@ func LoadEnvConfig() *EnvConfig {
 	}
 	useSSL := os.Getenv("MINIO_USE_SSL")
 	config.Minio.UseSSL = useSSL == "true" || useSSL == "1"
-
-	// Temp Minio (for large file uploads)
-	config.TempMinio.Endpoint = os.Getenv("TEMP_MINIO_ENDPOINT")
-	if config.TempMinio.Endpoint == "" {
-		config.TempMinio.Endpoint = config.Minio.Endpoint // Default to main MinIO
-	}
-	config.TempMinio.AccessKey = os.Getenv("TEMP_MINIO_ACCESS_KEY_ID")
-	if config.TempMinio.AccessKey == "" {
-		config.TempMinio.AccessKey = config.Minio.AccessKey
-	}
-	config.TempMinio.SecretKey = os.Getenv("TEMP_MINIO_SECRET_ACCESS_KEY")
-	if config.TempMinio.SecretKey == "" {
-		config.TempMinio.SecretKey = config.Minio.SecretKey
-	}
-	config.TempMinio.Region = os.Getenv("TEMP_MINIO_REGION")
-	if config.TempMinio.Region == "" {
-		config.TempMinio.Region = config.Minio.Region
-	}
-	tempUseSSL := os.Getenv("TEMP_MINIO_USE_SSL")
-	if tempUseSSL != "" {
-		config.TempMinio.UseSSL = tempUseSSL == "true" || tempUseSSL == "1"
-	} else {
-		config.TempMinio.UseSSL = config.Minio.UseSSL
-	}
 
 	// RabbitMQ
 	config.RabbitMQ.Host = os.Getenv("RABBITMQ_HOST")

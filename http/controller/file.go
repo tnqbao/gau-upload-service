@@ -168,7 +168,8 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 	}
 
 	// If custom path provided, ensure folders exist in MinIO FIRST
-	if customPath != "" {
+	// Skip for "pending" bucket as it only stores temporary chunks
+	if customPath != "" && bucketName != "pending" {
 		// ... existing folder creation logic ...
 		segments := strings.Split(customPath, "/")
 		for i := 0; i < len(segments); i++ {

@@ -22,6 +22,7 @@ type StreamUploadMessage struct {
 	FileHash     string            `json:"file_hash"`     // Hash of the file
 	FileSize     int64             `json:"file_size"`     // Total file size in bytes
 	ChunkSize    int64             `json:"chunk_size"`    // Desired chunk size (0 = use default)
+	IsHash       bool              `json:"is_hash"`       // Whether to use hash as filename (default: true)
 	Metadata     map[string]string `json:"metadata"`      // Additional metadata (user_id, upload_id, etc.)
 }
 
@@ -67,6 +68,7 @@ func (h *StreamUploadHandler) HandleStreamUpload(ctx context.Context, body []byt
 		FileHash:     msg.FileHash,
 		FileSize:     msg.FileSize,
 		ChunkSize:    msg.ChunkSize,
+		IsHash:       msg.IsHash,
 		Metadata:     msg.Metadata,
 	}
 

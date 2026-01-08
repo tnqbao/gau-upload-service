@@ -21,6 +21,7 @@ type ChunkRequest struct {
 	FileHash     string
 	FileSize     int64
 	ChunkSize    int64
+	IsHash       bool
 	Metadata     map[string]string
 }
 
@@ -63,10 +64,20 @@ func (s *ChunkerService) ProcessFile(ctx context.Context, req ChunkRequest) (*Pr
 		contentType = ct
 	}
 
-	// Construct final file path: customPath/hash.ext
+	// Construct final file path based on is_hash parameter
 	ext := filepath.Ext(req.OriginalName)
 	if ext == "" {
 		ext = filepath.Ext(req.TempPath)
+	}
+
+	// Determine filename based on IsHash parameter
+	var fileName string
+	if req.IsHash {
+		// Use hash as filename (default behavior)
+		fileName = req.FileHash + ext
+	} else {
+		// Use original filename
+		fileName = req.OriginalName
 	}
 
 	var finalPath string
@@ -74,12 +85,12 @@ func (s *ChunkerService) ProcessFile(ctx context.Context, req ChunkRequest) (*Pr
 		// If TargetFolder contains customPath/hash, extract just the customPath
 		customPath := req.Metadata["custom_path"]
 		if customPath != "" {
-			finalPath = fmt.Sprintf("%s/%s%s", customPath, req.FileHash, ext)
+			finalPath = fmt.Sprintf("%s/%s", customPath, fileName)
 		} else {
-			finalPath = fmt.Sprintf("%s%s", req.FileHash, ext)
+			finalPath = fileName
 		}
 	} else {
-		finalPath = fmt.Sprintf("%s%s", req.FileHash, ext)
+		finalPath = fileName
 	}
 
 	log.Printf("[Chunker] Streaming file to %s/%s (no disk I/O)", req.TargetBucket, finalPath)

@@ -102,12 +102,8 @@ func (h *ChunkCompleteHandler) HandleChunkComplete(ctx context.Context, body []b
 		response.Error = err.Error()
 		log.Printf("[ChunkComplete] Failed to compose upload %s: %v", msg.UploadID, err)
 	} else {
-		// Construct final file path
-		ext := filepath.Ext(msg.FileName)
-		if ext == "" {
-			ext = ".bin"
-		}
-		fileName := fileHash + ext
+		// Construct final file path using original filename (no hash)
+		fileName := msg.FileName
 		if msg.CustomPath != "" {
 			response.FilePath = fmt.Sprintf("%s/%s", msg.CustomPath, fileName)
 		} else {
@@ -255,8 +251,8 @@ func (h *ChunkCompleteHandler) composeAndUpload(ctx context.Context, msg *ChunkC
 	fileHash := hex.EncodeToString(hasher.Sum(nil))
 	log.Printf("[ChunkComplete] Calculated hash: %s (total size: %d)", fileHash, totalSize)
 
-	// 7. Rename/copy temp file to final location with hash name
-	fileName := fileHash + ext
+	// 7. Rename/copy temp file to final location with original filename (no hash)
+	fileName := msg.FileName
 	var finalPath string
 	if msg.CustomPath != "" {
 		finalPath = fmt.Sprintf("%s/%s", msg.CustomPath, fileName)

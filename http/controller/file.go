@@ -147,12 +147,8 @@ func (ctrl *Controller) UploadFile(c *gin.Context) {
 		// Use hash as filename
 		fileName = fileHash + ext
 	} else {
-		// Use original filename, but sanitize it
-		fileName = utils.SanitizeFileName(fileHeader.Filename)
-		// Ensure the sanitized name has the correct extension
-		if filepath.Ext(fileName) == "" && ext != "" {
-			fileName = fileName + ext
-		}
+		// Use original filename directly (preserve spaces and Unicode characters)
+		fileName = fileHeader.Filename
 	}
 
 	// Construct file path with proper directory structure

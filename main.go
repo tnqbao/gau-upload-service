@@ -2,11 +2,12 @@ package main
 
 import (
 	"github.com/joho/godotenv"
-	"github.com/tnqbao/gau-upload-service/config"
-	"github.com/tnqbao/gau-upload-service/controller"
-	"github.com/tnqbao/gau-upload-service/infra"
-	"github.com/tnqbao/gau-upload-service/repository"
-	"github.com/tnqbao/gau-upload-service/routes"
+	"github.com/tnqbao/gau-upload-service/http/controller"
+	"github.com/tnqbao/gau-upload-service/http/routes"
+	"github.com/tnqbao/gau-upload-service/shared/config"
+	"github.com/tnqbao/gau-upload-service/shared/infra"
+	"github.com/tnqbao/gau-upload-service/shared/repository"
+
 	"log"
 )
 

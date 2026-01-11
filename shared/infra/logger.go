@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/tnqbao/gau-upload-service/config"
+	"github.com/tnqbao/gau-upload-service/shared/config"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"

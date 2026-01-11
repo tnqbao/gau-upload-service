@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../../../gau-account-service"
+		},
+		{
+			"path": "../../../gau-cloud-console"
+		},
+		{
+			"path": "../.."
+		}
+	]
+}

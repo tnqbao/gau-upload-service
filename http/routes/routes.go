@@ -23,5 +23,6 @@ func SetupRouter(ctrl *controller.Controller) *gin.Engine {
 		apiRoutes.DELETE("/file", ctrl.DeleteFile)
 		apiRoutes.GET("/files/list", ctrl.ListFiles)
 	}
+	apiRoutes.GET("/health", ctrl.CheckHealth)
 	return r
 }
